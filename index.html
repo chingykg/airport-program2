@@ -1,174 +1,132 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Tourism Reports (ARR & DEPAR)</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<style>
-body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #eef2f7; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
-.container { background: white; padding: 30px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); width: 100%; max-width: 500px; text-align: center; }
-h1 { color: #2c3e50; font-size: 24px; margin-bottom: 10px; }
-p { color: #7f8c8d; margin-bottom: 30px; }
-.btn-group { display: flex; flex-direction: column; gap: 15px; }
-.upload-box { position: relative; }
-input[type="file"] { display: none; }
-.btn { display: block; padding: 15px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: all 0.3s ease; text-transform: uppercase; border: none; color: white; }
-.btn-arr { background: #27ae60; }
-.btn-arr:hover { background: #219150; transform: translateY(-2px); }
-.btn-dep { background: #2980b9; }
-.btn-dep:hover { background: #2471a3; transform: translateY(-2px); }
-#status { margin-top: 20px; padding: 10px; border-radius: 5px; font-size: 14px; display: none; }
-.success { display: block !important; background: #d4edda; color: #155724; }
-.error { display: block !important; background: #f8d7da; color: #721c24; }
-</style>
+    <meta charset="UTF-8">
+    <title>Tourism Reports PRO</title>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+    
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #eef2f7; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+        .card { background: white; padding: 40px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; width: 400px; }
+        h2 { color: #2c3e50; margin-bottom: 25px; }
+        .btn { display: block; padding: 15px; margin: 10px 0; border-radius: 8px; font-weight: bold; cursor: pointer; color: white; border: none; text-decoration: none; transition: 0.3s; }
+        .btn-arr { background: #27ae60; }
+        .btn-arr:hover { background: #219150; }
+        .btn-dep { background: #2980b9; }
+        .btn-dep:hover { background: #2471a3; }
+        input[type="file"] { display: none; }
+        #status { margin-top: 20px; color: #7f8c8d; font-size: 14px; }
+    </style>
 </head>
 <body>
 
-<div class="container">
-<h1>Tourism Data Processor</h1>
-<p>Выберите тип отчета для обработки</p>
-
-<div class="btn-group">
-<div class="upload-box">
-<label for="fileArr" class="btn btn-arr">Создать ARR прогу (Прилет)</label>
-<input type="file" id="fileArr" accept=".xlsx, .xls, .xlsm" onchange="processFile('ARR')">
-</div>
-
-<div class="upload-box">
-<label for="fileDep" class="btn btn-dep">Создать DEPAR прогу (Вылет)</label>
-<input type="file" id="fileDep" accept=".xlsx, .xls, .xlsm" onchange="processFile('DEP')">
-</div>
-</div>
-
-<div id="status"></div>
+<div class="card">
+    <h2>ARR & DEP Processor</h2>
+    <p>Выберите файл для обработки:</p>
+    
+    <label for="fArr" class="btn btn-arr">СОЗДАТЬ ARR (ПРИЛЕТ)</label>
+    <input type="file" id="fArr" onchange="run('ARR')">
+    
+    <label for="fDep" class="btn btn-dep">СОЗДАТЬ DEPAR (ВЫЛЕТ)</label>
+    <input type="file" id="fDep" onchange="run('DEP')">
+    
+    <div id="status">Ожидание файла...</div>
 </div>
 
 <script>
-function processFile(mode) {
-const fileInput = mode === 'ARR' ? document.getElementById('fileArr') : document.getElementById('fileDep');
-const file = fileInput.files[0];
-const statusDiv = document.getElementById('status');
+// Вся логика теперь здесь
+function run(mode) {
+    const input = mode === 'ARR' ? document.getElementById('fArr') : document.getElementById('fDep');
+    const file = input.files[0];
+    if (!file) return;
 
-if (!file) return;
+    document.getElementById('status').innerText = "Обработка и стилизация...";
 
-statusDiv.className = '';
-statusDiv.innerText = "Обработка файла...";
-statusDiv.style.display = "block";
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const data = new Uint8Array(e.target.result);
+            const wb = XLSX.read(data, {type: 'array'});
+            const raw = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+            
+            if (raw.length === 0) throw "Файл пуст";
 
-const reader = new FileReader();
-reader.onload = function(e) {
-try {
-const data = new Uint8Array(e.target.result);
-const workbook = XLSX.read(data, {type: 'array'});
-const wsSrc = workbook.Sheets[workbook.SheetNames[0]];
-const jsonData = XLSX.utils.sheet_to_json(wsSrc);
+            // 1. Формируем данные как в макросе
+            const processed = raw.map(item => {
+                if(mode === 'ARR') {
+                    return {
+                        "VOUCHER": v(item["Reference #"]), "Hotel": v(item["Hotel"]), "Date of birth": v(item["Date of birth"]),
+                        "MR/MRS": v(item["MR/MRS"]), "NAME": v(item["Tourist"]), "PAX": 1,
+                        "FLIGHT": v(item["Arrival flight"]), "DATE AND TIME": v(item["Time of arrival flight to"]),
+                        "Guide": "-", "Pick up guide": "-", "Services by partner": v(item["Services by partner"])
+                    };
+                } else {
+                    return {
+                        "VOUCHER": v(item["Reference #"]), "Hotel": v(item["Hotel"]), "MR/MRS": v(item["MR/MRS"]),
+                        "NAME": v(item["Tourist"]), "PAX": 1, "PHONE": "-", "HOTEL GUIDE": "-",
+                        "FLIGHT": v(item["Return flight"]), "DATE AND TIME": v(item["Time of return fligh from"]),
+                        "PICK UP TIME": "-", "GUIDE": "-", "Pick up GUIDE": "-", "Services by partner": v(item["Services by partner"])
+                    };
+                }
+            });
 
-if (jsonData.length === 0) throw "Файл пуст или имеет неверный формат";
+            const newWb = XLSX.utils.book_new();
+            
+            // 2. Группировка по рейсам (листы)
+            const groups = {"Base": processed};
+            processed.forEach(x => {
+                let n = clean(x.FLIGHT);
+                if(!groups[n]) groups[n] = [];
+                groups[n].push(x);
+            });
 
-let result;
-if (mode === 'ARR') {
-result = handleArrival(jsonData);
-} else {
-result = handleDeparture(jsonData);
+            // 3. Создание листов и применение стилей
+            Object.keys(groups).forEach(name => {
+                const dataForSheet = name === "Base" ? groups[name] : groups[name].sort((a,b) => String(a.Hotel).localeCompare(b.Hotel));
+                const ws = XLSX.utils.json_to_sheet(dataForSheet);
+
+                // Применяем границы, жирный шрифт и цвет шапки
+                const range = XLSX.utils.decode_range(ws['!ref']);
+                for(let R = range.s.r; R <= range.e.r; ++R) {
+                    for(let C = range.s.c; C <= range.e.c; ++C) {
+                        const cell = ws[XLSX.utils.encode_cell({c:C, r:R})];
+                        if(!cell) continue;
+                        
+                        cell.s = {
+                            border: {
+                                top: {style:"thin"}, bottom: {style:"thin"},
+                                left: {style:"thin"}, right: {style:"thin"}
+                            }
+                        };
+
+                        if(R === 0) { // Стиль для шапки
+                            cell.s.fill = { fgColor: { rgb: "8EAADA" } };
+                            cell.s.font = { bold: true };
+                            cell.s.alignment = { horizontal: "center" };
+                        }
+                    }
+                }
+
+                // Авто-ширина колонок
+                ws['!cols'] = Object.keys(dataForSheet[0] || {}).map(() => ({wch: 18}));
+                XLSX.utils.book_append_sheet(newWb, ws, name);
+            });
+
+            XLSX.writeFile(newWb, mode + "_Report_Styled.xlsx");
+            document.getElementById('status').innerText = "Готово! Файл скачан.";
+        } catch(err) {
+            alert("Ошибка: " + err);
+            document.getElementById('status').innerText = "Ошибка в данных.";
+        }
+        input.value = '';
+    };
+    reader.readAsArrayBuffer(file);
 }
 
-XLSX.writeFile(result.wb, `${mode}_REPORT_${new Date().toISOString().slice(0,10)}.xlsx`);
-
-statusDiv.className = 'success';
-statusDiv.innerText = `Готово! ${mode} отчет успешно создан.`;
-} catch (err) {
-statusDiv.className = 'error';
-statusDiv.innerText = "Ошибка: " + err;
-}
-fileInput.value = ''; // Сброс для возможности повторной загрузки
-};
-reader.readAsArrayBuffer(file);
-}
-
-function handleArrival(data) {
-const required = ["Reference #", "Hotel", "Date of birth", "MR/MRS", "Tourist", "Arrival flight", "Time of arrival flight to", "Services by partner"];
-checkColumns(data[0], required);
-
-const baseData = data.map(row => ({
-"VOUCHER": safeValue(row["Reference #"]),
-"Hotel": safeValue(row["Hotel"]),
-"Date of birth": safeValue(row["Date of birth"]),
-"MR/MRS": safeValue(row["MR/MRS"]),
-"NAME": safeValue(row["Tourist"]),
-"PAX": 1,
-"FLIGHT": safeValue(row["Arrival flight"]),
-"DATE AND TIME": safeValue(row["Time of arrival flight to"]),
-"Guide": "-",
-"Pick up guide": "-",
-"Services by partner": safeValue(row["Services by partner"])
-}));
-
-return createWorkbook(baseData, "FLIGHT");
-}
-
-function handleDeparture(data) {
-const required = ["Reference #", "Hotel", "MR/MRS", "Tourist", "Return flight", "Time of return fligh from", "Services by partner"];
-checkColumns(data[0], required);
-
-const baseData = data.map(row => ({
-"VOUCHER": safeValue(row["Reference #"]),
-"Hotel": safeValue(row["Hotel"]),
-"MR/MRS": safeValue(row["MR/MRS"]),
-"NAME": safeValue(row["Tourist"]),
-"PAX": 1,
-"PHONE": "-",
-"HOTEL GUIDE": "-",
-"FLIGHT": safeValue(row["Return flight"]),
-"DATE AND TIME": safeValue(row["Time of return fligh from"]),
-"PICK UP TIME": "-",
-"GUIDE": "-",
-"Pick up GUIDE": "-",
-"Services by partner": safeValue(row["Services by partner"])
-}));
-
-return createWorkbook(baseData, "FLIGHT");
-}
-
-function createWorkbook(baseData, flightKey) {
-const newWb = XLSX.utils.book_new();
-
-// Лист Base
-const wsBase = XLSX.utils.json_to_sheet(baseData);
-XLSX.utils.book_append_sheet(newWb, wsBase, "Base");
-
-// Группировка по рейсам
-const groups = {};
-baseData.forEach(row => {
-let fName = cleanSheetName(row[flightKey]);
-if (!groups[fName]) groups[fName] = [];
-groups[fName].push(row);
-});
-
-// Создание листов для каждого рейса + сортировка по Hotel
-Object.keys(groups).forEach(name => {
-const sorted = groups[name].sort((a, b) => a.Hotel.localeCompare(b.Hotel));
-const ws = XLSX.utils.json_to_sheet(sorted);
-XLSX.utils.book_append_sheet(newWb, ws, name);
-});
-
-return { wb: newWb };
-}
-
-function checkColumns(firstRow, required) {
-required.forEach(col => {
-if (!(col in firstRow)) throw `В файле нет колонки: "${col}"`;
-});
-}
-
-function safeValue(v) {
-return (v === undefined || v === null || String(v).trim() === "") ? "-" : v;
-}
-
-function cleanSheetName(txt) {
-let res = String(txt).replace(/[\\\/\:\*\?\[\]]/g, "_");
-if (res.length > 31) res = res.substring(0, 31);
-return (res.trim() === "" || res === "-") ? "NO_FLIGHT" : res;
+function v(val) { return (val === undefined || val === null || String(val).trim() === "") ? "-" : val; }
+function clean(n) {
+    let res = String(n).replace(/[\\\/\:\*\?\[\]]/g, "_").substring(0, 31);
+    return (res.trim() === "" || res === "-") ? "NO_FLIGHT" : res;
 }
 </script>
 
