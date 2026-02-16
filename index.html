@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tourism Reports (ARR & DEPAR)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #eef2f7; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+.container { background: white; padding: 30px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); width: 100%; max-width: 500px; text-align: center; }
+h1 { color: #2c3e50; font-size: 24px; margin-bottom: 10px; }
+p { color: #7f8c8d; margin-bottom: 30px; }
+.btn-group { display: flex; flex-direction: column; gap: 15px; }
+.upload-box { position: relative; }
+input[type="file"] { display: none; }
+.btn { display: block; padding: 15px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: all 0.3s ease; text-transform: uppercase; border: none; color: white; }
+.btn-arr { background: #27ae60; }
+.btn-arr:hover { background: #219150; transform: translateY(-2px); }
+.btn-dep { background: #2980b9; }
+.btn-dep:hover { background: #2471a3; transform: translateY(-2px); }
+#status { margin-top: 20px; padding: 10px; border-radius: 5px; font-size: 14px; display: none; }
+.success { display: block !important; background: #d4edda; color: #155724; }
+.error { display: block !important; background: #f8d7da; color: #721c24; }
+</style>
+</head>
+<body>
+
+<div class="container">
+<h1>Tourism Data Processor</h1>
+<p>Выберите тип отчета для обработки</p>
+
+<div class="btn-group">
+<div class="upload-box">
+<label for="fileArr" class="btn btn-arr">Создать ARR прогу (Прилет)</label>
+<input type="file" id="fileArr" accept=".xlsx, .xls, .xlsm" onchange="processFile('ARR')">
+</div>
+
+<div class="upload-box">
+<label for="fileDep" class="btn btn-dep">Создать DEPAR прогу (Вылет)</label>
+<input type="file" id="fileDep" accept=".xlsx, .xls, .xlsm" onchange="processFile('DEP')">
+</div>
+</div>
+
+<div id="status"></div>
+</div>
+
+<script>
+function processFile(mode) {
+const fileInput = mode === 'ARR' ? document.getElementById('fileArr') : document.getElementById('fileDep');
+const file = fileInput.files[0];
+const statusDiv = document.getElementById('status');
+
+if (!file) return;
+
+statusDiv.className = '';
+statusDiv.innerText = "Обработка файла...";
+statusDiv.style.display = "block";
+
+const reader = new FileReader();
+reader.onload = function(e) {
+try {
+const data = new Uint8Array(e.target.result);
+const workbook = XLSX.read(data, {type: 'array'});
+const wsSrc = workbook.Sheets[workbook.SheetNames[0]];
+const jsonData = XLSX.utils.sheet_to_json(wsSrc);
+
+if (jsonData.length === 0) throw "Файл пуст или имеет неверный формат";
+
+let result;
+if (mode === 'ARR') {
+result = handleArrival(jsonData);
+} else {
+result = handleDeparture(jsonData);
+}
+
+XLSX.writeFile(result.wb, `${mode}_REPORT_${new Date().toISOString().slice(0,10)}.xlsx`);
+
+statusDiv.className = 'success';
+statusDiv.innerText = `Готово! ${mode} отчет успешно создан.`;
+} catch (err) {
+statusDiv.className = 'error';
+statusDiv.innerText = "Ошибка: " + err;
+}
+fileInput.value = ''; // Сброс для возможности повторной загрузки
+};
+reader.readAsArrayBuffer(file);
+}
+
+function handleArrival(data) {
+const required = ["Reference #", "Hotel", "Date of birth", "MR/MRS", "Tourist", "Arrival flight", "Time of arrival flight to", "Services by partner"];
+checkColumns(data[0], required);
+
+const baseData = data.map(row => ({
+"VOUCHER": safeValue(row["Reference #"]),
+"Hotel": safeValue(row["Hotel"]),
+"Date of birth": safeValue(row["Date of birth"]),
+"MR/MRS": safeValue(row["MR/MRS"]),
+"NAME": safeValue(row["Tourist"]),
+"PAX": 1,
+"FLIGHT": safeValue(row["Arrival flight"]),
+"DATE AND TIME": safeValue(row["Time of arrival flight to"]),
+"Guide": "-",
+"Pick up guide": "-",
+"Services by partner": safeValue(row["Services by partner"])
+}));
+
+return createWorkbook(baseData, "FLIGHT");
+}
+
+function handleDeparture(data) {
+const required = ["Reference #", "Hotel", "MR/MRS", "Tourist", "Return flight", "Time of return fligh from", "Services by partner"];
+checkColumns(data[0], required);
+
+const baseData = data.map(row => ({
+"VOUCHER": safeValue(row["Reference #"]),
+"Hotel": safeValue(row["Hotel"]),
+"MR/MRS": safeValue(row["MR/MRS"]),
+"NAME": safeValue(row["Tourist"]),
+"PAX": 1,
+"PHONE": "-",
+"HOTEL GUIDE": "-",
+"FLIGHT": safeValue(row["Return flight"]),
+"DATE AND TIME": safeValue(row["Time of return fligh from"]),
+"PICK UP TIME": "-",
+"GUIDE": "-",
+"Pick up GUIDE": "-",
+"Services by partner": safeValue(row["Services by partner"])
+}));
+
+return createWorkbook(baseData, "FLIGHT");
+}
+
+function createWorkbook(baseData, flightKey) {
+const newWb = XLSX.utils.book_new();
+
+// Лист Base
+const wsBase = XLSX.utils.json_to_sheet(baseData);
+XLSX.utils.book_append_sheet(newWb, wsBase, "Base");
+
+// Группировка по рейсам
+const groups = {};
+baseData.forEach(row => {
+let fName = cleanSheetName(row[flightKey]);
+if (!groups[fName]) groups[fName] = [];
+groups[fName].push(row);
+});
+
+// Создание листов для каждого рейса + сортировка по Hotel
+Object.keys(groups).forEach(name => {
+const sorted = groups[name].sort((a, b) => a.Hotel.localeCompare(b.Hotel));
+const ws = XLSX.utils.json_to_sheet(sorted);
+XLSX.utils.book_append_sheet(newWb, ws, name);
+});
+
+return { wb: newWb };
+}
+
+function checkColumns(firstRow, required) {
+required.forEach(col => {
+if (!(col in firstRow)) throw `В файле нет колонки: "${col}"`;
+});
+}
+
+function safeValue(v) {
+return (v === undefined || v === null || String(v).trim() === "") ? "-" : v;
+}
+
+function cleanSheetName(txt) {
+let res = String(txt).replace(/[\\\/\:\*\?\[\]]/g, "_");
+if (res.length > 31) res = res.substring(0, 31);
+return (res.trim() === "" || res === "-") ? "NO_FLIGHT" : res;
+}
+</script>
+
+</body>
+</html>
